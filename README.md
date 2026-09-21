@@ -14,14 +14,15 @@
   - 音频（Ogg Vorbis）
   - 谱面（.spc 格式，可转为可读 JSON）
   - 游戏内所有图片（贴图、UI 立绘、卡牌、角色图标、歌曲封面等）
-  - 视频（webm）、字体（ttf）
+  - 视频（webm）、字体（ttf/otf，共 27 个，含日中韩繁简）
   - NovelEngine 文本脚本
 
 - **数据表导出**
-  - 定数表（按谱面/难度）
+  - 定数表
   - 歌曲列表（含难度、BPM、预览片段）
   - 卡牌数据（基础特性、掉落表）
-  - 本地化字符串映射（多语言歌曲名、角色名、技能名等）
+  - 本地化字符串映射（5 语言：英 / 日 / 韩 / 繁中 / 简中）
+  - 剧情对白多语言表（18015 条 × 5 语言）与剧情目录
   - 关卡包数据、奖励表、角色图标映射等
 
 ## 使用方法
@@ -49,14 +50,15 @@
 
    ```
    output/
-   ├── audio/          # 音频文件（Ogg Vorbis）
+   ├── audio/          # 音频文件
    ├── charts/         # 原始谱面 .spc + .summary.json 概要
-   ├── charts_json/    # 谱面解密后的 JSON（类型/轨道/起止毫秒/拍号/位置/宽度）
-   ├── images/         # 贴图、UI立绘等（原始尺寸，不裁剪）
-   ├── sprites/        # UI Sprite（UnityPy 输出尺寸）
+   ├── charts_json/    # 谱面解密后的 JSON
+   ├── images/         # 贴图、UI立绘等
+   ├── sprites/        # UI Sprite
    ├── videos/         # 视频文件
+   ├── fonts/          # 字体
    ├── scripts/        # NovelEngine 文本脚本
-   ├── info/           # 数据表（JSON 格式）
+   ├── info/           # 数据表
         ├── constant_table.json        # 定数表
         ├── songs.json                # 歌曲表
         ├── game_data.json            # 卡牌数据
@@ -65,7 +67,9 @@
         ├── card_art_mapping.json     # 卡牌图映射
         ├── character_icon_mapping.json # 角色图标
         ├── skill_icon_mapping.json   # 技能图标
-        └── dynamic_string_mapping.json # 本地化映射
+        ├── dynamic_string_mapping.json # 本地化映射
+        ├── story_translations.json   # 剧情对白
+        └── story_details.json        # 剧情目录与解锁条件
    ```
 
 ## 自定义提取

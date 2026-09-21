@@ -1,15 +1,4 @@
-"""谱面 .spc (ICP1) 解密并转成可读 JSON。
-
-解析器 VA 0x1805347E0, 记录解码器 0x1805339E0,
-密钥流 GEN 0x180525470, 状态推进 finalize 0x1805252E0, 密钥派生 0x180536320。
-以上转写均已用 x86 模拟器 icp_emu.py 逐函数比对通过。
-
-密钥: 种子为资源的 FullLookupPath (如 "alamode0.spc", 含扩展名);
-      state = deriveKey(种子, noteCount, 1);
-      字段明文 = 小端密文 - GEN(state, 记录序号, 字段号);
-      每条记录后用 3 次 finalize 推进状态。
-
-"""
+"""谱面 .spc (ICP1) 解密并转成可读 JSON"""
 import json
 import os
 import struct
@@ -22,8 +11,6 @@ OUT_ROOT = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'output')
 M64 = (1 << 64) - 1
 M32 = (1 << 32) - 1
 
-# 标志 A 的字节含义 (实测 283 张谱面 185531 条记录归纳)。导出不做名称转换:
-# type / track 直接给编号, flick 给方向编号, 对照表见 awa/CHART_FORMAT.md。
 TYPE_FLICK = 4          # 标志 A 高字节 = 4 (1 tap / 2 hold / 5 field)
 TYPE_FIELD = 5          # 标志 A 高字节 = 5
 TRACK_AIR = 4           # 标志 A 低字节 = 4 (1 地面 / 2 左侧轨 / 3 右侧轨)
@@ -37,7 +24,7 @@ def rol(x, n):
 
 
 def gen(state, idx, k):
-    """GEN: 生成 (记录序号 idx, 字段号 k) 的密钥流。"""
+    """GEN: 生成 (记录序号 idx, 字段号 k) 的密钥流"""
     s0, s1, s2, s3 = state[0], state[1], state[2], state[3]
     r9 = ((idx & M32) << 32) | (k & M32)
     v = k & 3
@@ -53,7 +40,7 @@ def gen(state, idx, k):
 
 
 def finalize(state, rdx, r8, r9):
-    """状态推进一轮, 分支由计数器低 2 位选择。"""
+    """状态推进一轮, 分支由计数器低 2 位选择"""
     s0, s1, s2, s3, cnt = state
     v = cnt & 3
     if v == 0:
@@ -308,7 +295,7 @@ def read_chart(root, name):
 def write_json(root, name, obj):
     path = Path(root) / _flat_name(name)
     # 只把 fractions 这类纯标量小数组内联, 音符与事件对象仍逐字段展开
-    path.write_text(json_compact.dumps(obj, inline_limit=0, inline_leaf_arrays=True),
+    path.write_text(json_compact.dumps(obj, inline_limit=0, leaf_limit=240),
                     encoding='utf-8')
 
 

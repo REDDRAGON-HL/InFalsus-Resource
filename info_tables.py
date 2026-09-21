@@ -21,9 +21,12 @@ EXTRA_TABLES = [
     ('RewardData', 'reward_data.json'),
     ('CardArtMapping', 'card_art_mapping.json'),
     ('CharacterUniversalIconMapping', 'character_icon_mapping.json'),
+    ('StoryTranslationDetails', 'story_translations.json'),
+    ('StoryDetails', 'story_details.json'),
 ]
 
-COMPACT_TABLES = {'game_data.json', 'pack_data.json', 'reward_data.json'}
+COMPACT_TABLES = {'game_data.json', 'pack_data.json', 'reward_data.json',
+                  'story_translations.json', 'story_details.json'}
 COMPACT_LIMIT = 600
 
 SAFE_CHARS = set('._+() &!-') | {chr(39)}
@@ -95,7 +98,9 @@ def pick_table(tables, name):
 def write_json(root, rel, data):
     p = Path(safe_out(root, rel))
     limit = COMPACT_LIMIT if p.name in COMPACT_TABLES else 0
-    p.write_text(json_compact.dumps(data, inline_limit=limit), encoding='utf-8')
+    p.write_text(json_compact.dumps(data, inline_limit=limit,
+                                    leaf_limit=240, leaf_object_limit=240),
+                 encoding='utf-8')
     return str(p)
 
 

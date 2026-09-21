@@ -222,12 +222,20 @@ def _font_bytes(data):
     return b''
 
 
-def write_font(out_root, path_id, name, data):
+def _font_ext(data):
+    if data[:4] == b'OTTO':
+        return '.otf'
+    if data[:4] in (b'\x00\x01\x00\x00', b'true', b'ttcf'):
+        return '.ttf'
+    return '.bin'
+
+
+def write_font(out_root, path_id, name, data, ext=None):
     if not data:
         return False
     raw_name = name or ('font_' + str(path_id))
     safe_name = raw_name if _seg_ok(raw_name) else ('font_' + str(path_id))
-    write_out(out_root, 'fonts/' + safe_name + '.ttf', data)
+    write_out(out_root, 'fonts/' + safe_name + (ext or _font_ext(data)), data)
     return True
 
 
@@ -256,12 +264,35 @@ def extract_assets_fonts(ddir, out_root, bstats):
                 bstats['errors'] += 1
 
 
+def extract_bundle_fonts(benv, out_root, bstats, seen, min_size=8000):
+    """导出 bundle 内的字体"""
+    for obj in benv.objects:
+        if obj.type.name != 'MonoBehaviour':
+            continue
+        if getattr(obj, 'byte_size', 0) < min_size:
+            continue
+        try:
+            tt = obj.read_typetree()
+        except Exception:
+            continue
+        raw = tt.get('RawBytes')
+        if not raw:
+            continue
+        ident = str(tt.get('Identifier') or tt.get('m_Name') or ('font_' + str(obj.path_id)))
+        if ident in seen:
+            continue
+        seen.add(ident)
+        if write_font(out_root, obj.path_id, ident, _font_bytes(raw)):
+            bstats['Font'] += 1
+
+
 def extract_bundles(BDIR, OUT, DDIR=None):
     import UnityPy
     bundles = sorted(f for f in os.listdir(BDIR) if f.endswith('.bundle'))
     print('[bundles] %d bundles' % len(bundles), flush=True)
     bstats = {'VideoClip': 0, 'Font': 0, 'errors': 0}
     extract_assets_fonts(DDIR, OUT, bstats)
+    seen_fonts = set()
     t0 = time.time()
     for bi, bname in enumerate(bundles, 1):
         try:
@@ -281,6 +312,7 @@ def extract_bundles(BDIR, OUT, DDIR=None):
                     res_data[fn] = fnode.read_bytes(fnode.Length)
         except Exception:
             pass
+        extract_bundle_fonts(benv, OUT, bstats, seen_fonts)
         for obj in benv.objects:
             try:
                 t = obj.type.name
@@ -359,7 +391,7 @@ def load_streaming_mapping(BDIR, pid_hint=None):
 
 def main():
     global GAME, OUT
-    ap = argparse.ArgumentParser(description='sam 解密')
+    ap = argparse.ArgumentParser(description='sam 解密 + 视频/字体')
     ap.add_argument('game_dir', nargs='?', default=GAME)
     ap.add_argument('out_dir', nargs='?', default=os.path.join(os.path.dirname(os.path.abspath(__file__)), 'output'))
     ap.add_argument('--skip-images', action='store_true', help='只解密 sam, 跳过 bundle')
