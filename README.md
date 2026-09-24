@@ -97,7 +97,7 @@ STORY_READABLE  = True   # 剧情脚本+译文转可读剧本
 | `pack_data.json`                 | 曲包：`{Id, Slug, SongIds}`                                |
 | `reward_data.json`               | 剧情 / 歌曲 / 配方 / 战斗的奖励发放                        |
 | `recipe_specifications.json`     | iota + 配方                                                |
-| `encounter_details.json`         | 战斗配置）                                                 |
+| `encounter_details.json`         | 战斗配置                                                 |
 | `dynamic_string_mapping.json`    | 本地化映射                                                 |
 | `story_translations.json`        | 剧情对白多语言表                                           |
 | `story_details.json`             | 剧情目录                                                   |
