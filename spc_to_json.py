@@ -1,5 +1,4 @@
 """谱面 .spc (ICP1) 解密并转成可读 JSON"""
-import json
 import os
 import struct
 import sys
@@ -11,12 +10,12 @@ OUT_ROOT = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'output')
 M64 = (1 << 64) - 1
 M32 = (1 << 32) - 1
 
-TYPE_FLICK = 4          # 标志 A 高字节 = 4 (1 tap / 2 hold / 5 field)
-TYPE_FIELD = 5          # 标志 A 高字节 = 5
-TRACK_AIR = 4           # 标志 A 低字节 = 4 (1 地面 / 2 左侧轨 / 3 右侧轨)
-FLICK_CODE_SHIFT = 8    # 标志 B 的方向位: 1024 >> 8 = 4 右, 4096 >> 8 = 16 左
-EASE_BITS_LEFT = 2      # 标志 B 位 2-4 = 左边界缓动 (one-hot), 0 Linear / 1 SineOut / 2 SineIn
-EASE_BITS_RIGHT = 5     # 标志 B 位 5-7 = 右边界缓动
+TYPE_FLICK = 4  # 标志 A 高字节 = 4 (1 tap / 2 hold / 5 field)
+TYPE_FIELD = 5  # 标志 A 高字节 = 5
+TRACK_AIR = 4  # 标志 A 低字节 = 4 (1 地面 / 2 左侧轨 / 3 右侧轨)
+FLICK_CODE_SHIFT = 8  # 标志 B 的方向位: 1024 >> 8 = 4 右, 4096 >> 8 = 16 左
+EASE_BITS_LEFT = 2  # 标志 B 位 2-4 = 左边界缓动 (one-hot), 0 Linear / 1 SineOut / 2 SineIn
+EASE_BITS_RIGHT = 5  # 标志 B 位 5-7 = 右边界缓动
 
 
 def rol(x, n):
@@ -243,13 +242,19 @@ def parse(data, seed):
         x_end = (scales[1][0] / scales[1][1]) if scales[1][1] else None
         w_start = (scales[2][0] / scales[2][1]) if scales[2][1] else None
         w_end = (scales[3][0] / scales[3][1]) if scales[3][1] else None
+        if track != TRACK_AIR and x_start is not None and w_start is not None:
+            lane_first = round(x_start * 4)
+            lane_last = round((x_start + w_start) * 4) - 1
+        else:
+            lane_first = lane_last = None
         note = {
             'index': fields[0],
             'line': fields[1],
             'type': note_type,
             'track': track,
-            # 六轨位置为 0/4..5/4 (细分格数恒为 4), 乘 4 即轨道号; 空域逐 note 不同格数, 无轨道号
-            'lane': round(x_start * 4) if (track != TRACK_AIR and x_start is not None) else None,
+            'lane': lane_first,
+            'laneFirst': lane_first,
+            'laneLast': lane_last,
             'timeMs': fields[2],
             'endMs': fields[3],
             'durationMs': fields[3] - fields[2],
