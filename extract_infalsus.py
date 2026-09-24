@@ -1,4 +1,9 @@
-"""sam 解密部分"""
+"""sam 解密部分
+用法:
+    python extract_infalsus.py [游戏目录] [输出目录]
+    --skip-images : 只解密 sam
+    --skip-sam    : 只提取 bundle (视频/字体)
+"""
 import argparse
 import json
 import os
@@ -8,8 +13,9 @@ import threading
 import time
 from concurrent.futures import ThreadPoolExecutor
 
+HERE = os.path.dirname(os.path.abspath(__file__))
 GAME = os.path.join('D:' + os.sep, 'Steam', 'steamapps', 'common', 'In Falsus')
-OUT = os.path.join('D:' + os.sep, '-ZM', 'storehouse', 'py', 'In Falsus', 'output')
+OUT = os.path.join(HERE, 'output')
 SAM_XOR_KEY = bytes.fromhex('f016284b7d9ec3a5')
 MASK64 = (1 << 64) - 1
 C1 = 0x9e3779b97f4a7c15

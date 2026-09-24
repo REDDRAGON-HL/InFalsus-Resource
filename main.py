@@ -15,6 +15,7 @@ EXTRACT_IMAGES = True  # bundle: 贴图/立绘 (原始尺寸) + Sprite
 EXTRACT_VIDEOS = True  # bundle: 视频 (webm) 与字体
 EXTRACT_TABLES = True  # 信息表: 定数表 / 歌曲表 / 卡牌数据 -> info/
 CHART_TO_JSON = True  # 谱面 .spc 转可读 JSON (输出到 charts_json/)
+STORY_READABLE = True  # 剧情脚本 .sps + 译文 转可读剧本 (输出到 story_readable/)
 
 # ============ 以下无需修改 ============
 
@@ -25,6 +26,7 @@ ALLOWED_SCRIPTS = {
     'export_images.py',
     'info_tables.py',
     'spc_to_json.py',
+    'story_readable.py',
 }
 
 
@@ -73,6 +75,9 @@ def main():
 
     if CHART_TO_JSON and EXTRACT_CHARTS:
         run('spc_to_json.py', [game, out])
+
+    if STORY_READABLE and EXTRACT_SCRIPTS and EXTRACT_TABLES:
+        run('story_readable.py')
 
     print()
     print('全部完成')

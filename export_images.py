@@ -1,13 +1,15 @@
 """贴图/立绘导出"""
-import os, re, json, struct, sys, time
 import argparse
-from PIL import Image
+import os
+import time
+
 import UnityPy
 
+HERE = os.path.dirname(os.path.abspath(__file__))
 GAME = os.path.join('D:' + os.sep, 'Steam', 'steamapps', 'common', 'In Falsus')
 BDIR = os.path.join(GAME, 'infalsus_Data', 'StreamingAssets', 'aa', 'StandaloneWindows64')
-OUT_IMAGES = os.path.join('D:' + os.sep, '-ZM', 'storehouse', 'py', 'In Falsus', 'output', 'images')
-OUT_SPRITES = os.path.join('D:' + os.sep, '-ZM', 'storehouse', 'py', 'In Falsus', 'output', 'sprites')
+OUT_IMAGES = os.path.join(HERE, 'output', 'images')
+OUT_SPRITES = os.path.join(HERE, 'output', 'sprites')
 
 SAFE_CHARS = set('._+() &!-') | {chr(39)}
 
