@@ -23,6 +23,9 @@ EXTRA_TABLES = [
     ('CharacterUniversalIconMapping', 'character_icon_mapping.json'),
     ('StoryTranslationDetails', 'story_translations.json'),
     ('StoryDetails', 'story_details.json'),
+    ('RecipeSpecificationDetails', 'recipe_specifications.json'),
+    ('EncounterDetails', 'encounter_details.json'),
+    ('VideoFiles', 'video_files.json'),
 ]
 
 COMPACT_TABLES = {'game_data.json', 'pack_data.json', 'reward_data.json',

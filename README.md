@@ -46,7 +46,7 @@
    ```
 
 3. **输出资源**  
-   所有资源将输出到当前目录下的 `output/` 文件夹，结构如下：
+   所有资源将输出到**脚本所在目录**下的 `output/` 文件夹，结构如下：
 
 ```
 output/
@@ -87,7 +87,7 @@ STORY_READABLE  = True   # 剧情脚本+译文转可读剧本
 
 ## 数据表说明
 
-`output/info/` 下 14 张表：
+`output/info/` 下 15 张表：
 
 | 文件                             | 内容                                                       |
 | -------------------------------- | ---------------------------------------------------------- |
@@ -102,6 +102,7 @@ STORY_READABLE  = True   # 剧情脚本+译文转可读剧本
 | `story_translations.json`        | 剧情对白多语言表                                           |
 | `story_details.json`             | 剧情目录                                                   |
 | `story_unlock_requirements.json` | 剧情顺序 + 解锁前置                                        |
+| `video_files.json`               | 视频清单  |
 | `card_art_mapping.json`          | 卡牌图映射                                                 |
 | `character_icon_mapping.json`    | 角色图标映射                                               |
 | `skill_icon_mapping.json`        | 技能图标映射                                               |

@@ -11,7 +11,7 @@
 import argparse
 import json
 import re
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 
 import json_compact
 
@@ -37,9 +37,9 @@ ID_RE = re.compile(r'^id\s+(\d{3}-\d{3})\s*$')
 SAY_RE = re.compile(r'^s\s+(?:\$(\w+)\s+)?`(.*)$')
 LOG_RE = re.compile(r'^log\s+`(.*)$')
 PHONE_MSG_RE = re.compile(r'^phone\s+message\s+(?:left|right)\s+\$(\w+)\s+`(.*)$')
-BG_INIT_RE = re.compile(r'^\s*bg_init\s+(\S+)')
+BG_INIT_RE = re.compile(r'^\s*bg_init\s+(\S+)(?:\s+"([^"]*)")?')
 VIDEO_RE = re.compile(r'^\s*video\s+"([^"]+)"')
-SHOW_RE = re.compile(r'^\s*show\s+"([^"]+)"')
+SHOW_RE = re.compile(r'^\s*show\s+"([^"]+)"(?:\s+"([^"]*)")?')
 SHOW_ALIAS_RE = re.compile(r'^\s*show\s+\$(\w+)')
 CG_NAME_RE = re.compile(r'_CG[A-Za-z0-9_]*$')
 PHONE_SETUP_RE = re.compile(r'^\s*phone\s+setup\b')
@@ -49,6 +49,15 @@ ALIAS_PATH_RE = re.compile(r'^alias\s+\$(\w+)\s+"[^"]*"(?:\s+"([^"]*)")?', re.M)
 STEM_RE = re.compile(r'^Y(\d+)-(\d+)-(\d+)([A-Z])-(\d+)')
 STEM_FULL_RE = re.compile(r'^Y(\d+)-(\d+)-(\d+)([A-Z])-(\d+)(-O)?_([A-Za-z]+)$')
 RUBY_RE = re.compile(r'<rt>.*?</rt>', re.S)
+
+# 片头动画：VideoFiles 表里 `03_dense_day.mp4` 这样的名字 = 天幔(RMI)分布状态 + 时段
+INTRO_NAME_RE = re.compile(r'^\d+_([a-z_]+)_(dawndusk|day|night)\.mp4$')
+RMI_STATES = {
+    'stable': '稳定', 'thin': '稀薄', 'dense': '密集', 'islands': '岛屿',
+    'shifting': '转换中', 'low_visibility': '低能见度', 'splitting': '分裂',
+    'scattered': '散落', 'needling': '针状',
+}
+RMI_TIMES = {'dawndusk': '晨昏', 'day': '白天', 'night': '夜晚'}
 
 # --- StoryIdentifier
 SEG_CODES = {c: i for i, c in enumerate('ABCDEFGHI')}
@@ -157,8 +166,8 @@ def parse_sps(path, aliases=None, alias_paths=None):
         match = BG_INIT_RE.match(lines[index])
         if match:
             if scene is None:
-                scene = match.group(1)
-                current_bg = resolve_asset(scene, aliases)
+                scene = asset_label(match.group(1), match.group(2), aliases)
+                current_bg = scene
             index += 1
             continue
 
@@ -202,8 +211,12 @@ def parse_sps(path, aliases=None, alias_paths=None):
 
         match = SHOW_RE.match(lines[index])
         if match:
-            name = match.group(1)
-            tag = '【CG】' if CG_NAME_RE.search(name) else '【画面】'
+            path = match.group(2) or ''
+            name = asset_label(match.group(1), path, aliases)
+            if path.lower().endswith(('.mp4', '.webm')):
+                tag = '【影片】'
+            else:
+                tag = '【CG】' if CG_NAME_RE.search(name) else '【画面】'
             items.append(('marker', None, None, tag + name))
             index += 1
             continue
@@ -276,24 +289,48 @@ def story_identifier(stem):
 
 
 def load_story_order():
-    """顺序 + 解锁依赖"""
+    """顺序 + 解锁依赖 + 片头视频 key"""
     path = INFO_DIR / 'story_details.json'
     if not path.is_file():
         return None, {}, {}
     data = json.loads(path.read_text(encoding='utf-8'))
     entries = data.get('orderedStoryEntries') or []
     order = {}
+    intro_keys = {}
     for index, entry in enumerate(entries):
         value = entry.get('StoryIdentifier', {}).get('underlyingValue')
         if value is not None:
             order[value] = index
+            intro_keys[value] = entry.get('IntroVideoKey') or 0
     requires = {}
     for item in data.get('orderedStoryEntryUnlockRequirements') or []:
         target = item.get('TargetStory', {}).get('underlyingValue')
         need = item.get('RequiredRead', {}).get('underlyingValue')
         if target is not None and need is not None:
             requires.setdefault(target, []).append(need)
-    return order, requires, {v: v for v in order}
+    return order, requires, intro_keys
+
+
+def load_intro_videos():
+    """IntroVideoKey -> 「RMI分布：密集 · 白天」。
+
+    每幕开头会播一段天幔（游戏里叫 RMI）分布动画，选哪一段由 story_details 的
+    `IntroVideoKey` 决定，它就是 VideoFiles 表里那批 `<序号>_<状态>_<时段>.mp4`
+    的第几条（1 起，共 9 状态 × 3 时段 = 27 条）。key 为 0 的幕没有片头。
+    """
+    path = INFO_DIR / 'video_files.json'
+    if not path.is_file():
+        return {}
+    data = json.loads(path.read_text(encoding='utf-8'))
+    out = {}
+    for entry in data.get('entries') or []:
+        match = INTRO_NAME_RE.match(entry.get('AssetName') or '')
+        if not match:
+            continue
+        state = RMI_STATES.get(match.group(1), match.group(1))
+        moment = RMI_TIMES.get(match.group(2), match.group(2))
+        out[len(out) + 1] = 'RMI分布：%s · %s' % (state, moment)
+    return out
 
 
 def topo_order(order, requires):
@@ -338,11 +375,25 @@ def resolve_asset(token, aliases):
     return token.strip('"')
 
 
+def asset_label(token, path, aliases):
+    """标记里显示的名字。
+
+    脚本里的对象名常是短名（`1A_CG`），真正的资源名只在第二个引号串里
+    （`cg/Keats_RMI_separation_1A_CG.png`），所以有资源路径就优先用它的文件名。
+    """
+    if path:
+        return PurePosixPath(path).stem
+    return resolve_asset(token, aliases)
+
+
 # --- 渲染
 
-def render(title, scene, items, translations, aliases, name_loc, lang, markers):
+def render(title, scene, items, translations, aliases, name_loc, lang, markers, intro=None):
     scene = resolve_asset(scene, aliases) if scene else None
-    out = ['# ' + title, '场景：' + (scene or '（未知）'), '']
+    out = ['# ' + title, '场景：' + (scene or '（未知）')]
+    if intro:
+        out.append(intro)
+    out.append('')
     for kind, item_id, speaker, text in items:
         if not text:
             continue
@@ -370,8 +421,9 @@ def render(title, scene, items, translations, aliases, name_loc, lang, markers):
 
 # --- 主流程
 
-def collect_scenes(story_order, requires, mode='game'):
+def collect_scenes(story_order, requires, mode='game', intro=None):
     """扫描所有.sps，按章节归组并按顺序定序，返回 (chapters, problems)"""
+    intro = intro or {}
     problems = []
     scenes = []
     for path in sorted(SCRIPTS_DIR.glob('scenario_wip/*/*.sps')):
@@ -379,6 +431,7 @@ def collect_scenes(story_order, requires, mode='game'):
         groups = re.findall(r'^id (\d{3})-\d{3}$', text, re.M)
         ident = story_identifier(path.stem)
         scenes.append({
+            'intro': intro.get(ident),
             'path': path,
             'folder': path.parent.name,
             'chapter': chapter_of(path.parent.name),
@@ -507,10 +560,13 @@ def main():
     name_loc = load_name_loc()
     aliases = load_aliases()
     alias_paths = load_alias_paths()
-    story_order, requires, _ = load_story_order()
+    story_order, requires, intro_keys = load_story_order()
     raw_order = story_order
+    intro_labels = load_intro_videos()
+    intro = {ident: intro_labels[key] for ident, key in intro_keys.items()
+             if key in intro_labels}
 
-    chapters, problems = collect_scenes(story_order, requires, args.order)
+    chapters, problems = collect_scenes(story_order, requires, args.order, intro)
 
     back_edges = sum(1 for target, needs in requires.items() if target in story_order
                      for need in needs
@@ -563,7 +619,7 @@ def main():
             title = ' - '.join([scene['number'], time_of(scene['stem'])]
                                + ([line] if line else []))
             body = render(title, scene_token, items, translations, aliases,
-                          name_loc, args.lang, not args.no_markers)
+                          name_loc, args.lang, not args.no_markers, scene.get('intro'))
             scene['title'] = title
             scene['scene'] = resolve_asset(scene_token, aliases) if scene_token else None
             scene['body'] = body
