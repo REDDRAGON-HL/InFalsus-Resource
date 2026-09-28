@@ -1,6 +1,6 @@
 # In Falsus 资源提取工具
 
-把《In Falsus》（lowiro，Unity 6 / IL2CPP 打包）游戏内的资源整包提取出来：
+把 In Falsus 游戏内的资源整包提取出来：
 解密 `.sam`、扫 AssetBundle、导出图片 / 音频 / 谱面 / 视频 / 字体 / 文本脚本 / 数据表，
 并额外把**剧情脚本合成可读剧本**、把**谱面解成可读 JSON**。
 

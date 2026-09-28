@@ -50,7 +50,6 @@ STEM_RE = re.compile(r'^Y(\d+)-(\d+)-(\d+)([A-Z])-(\d+)')
 STEM_FULL_RE = re.compile(r'^Y(\d+)-(\d+)-(\d+)([A-Z])-(\d+)(-O)?_([A-Za-z]+)$')
 RUBY_RE = re.compile(r'<rt>.*?</rt>', re.S)
 
-# 片头动画：VideoFiles 表里 `03_dense_day.mp4` 这样的名字 = 天幔(RMI)分布状态 + 时段
 INTRO_NAME_RE = re.compile(r'^\d+_([a-z_]+)_(dawndusk|day|night)\.mp4$')
 RMI_STATES = {
     'stable': '稳定', 'thin': '稀薄', 'dense': '密集', 'islands': '岛屿',
@@ -58,6 +57,8 @@ RMI_STATES = {
     'scattered': '散落', 'needling': '针状',
 }
 RMI_TIMES = {'dawndusk': '晨昏', 'day': '白天', 'night': '夜晚'}
+
+REMEMBRANCE_KINDS = {0: 'CONNECT', 1: 'REFLECT'}
 
 # --- StoryIdentifier
 SEG_CODES = {c: i for i, c in enumerate('ABCDEFGHI')}
@@ -131,6 +132,125 @@ def load_name_loc():
         if key and key not in table:
             table[key] = loc
     return table
+
+
+def load_type_mapping(name, lang):
+    """dynamic_string_mapping里的*TypeMapping -> {Id: (本地化名, IdStr)}"""
+    path = INFO_DIR / 'dynamic_string_mapping.json'
+    if not path.is_file():
+        return {}
+    table = (json.loads(path.read_text(encoding='utf-8')).get(name) or {})
+    field = LOC_FIELD[lang]
+    out = {}
+    for ids, text, values in zip(table.get('Ids') or [], table.get('IdStr') or [],
+                                 table.get('IdValues') or []):
+        value = ids.get('Value')
+        if value is None:
+            continue
+        name = (values.get(field) or '').strip() or (values.get('English') or '').strip()
+        out[value] = (name, (text or '').strip())
+    return out
+
+
+def load_bga_videos():
+    """曲名(baseName) -> BGA文件名"""
+    path = INFO_DIR / 'video_files.json'
+    if not path.is_file():
+        return {}
+    out = {}
+    for entry in json.loads(path.read_text(encoding='utf-8')).get('entries') or []:
+        name = entry.get('AssetName') or ''
+        if name.endswith('_bga.mp4'):
+            out[name[:-len('_bga.mp4')]] = name
+    return out
+
+
+def load_encounter_kinds():
+    """遭遇 id -> CONNECT / REFLECT"""
+    path = INFO_DIR / 'encounter_details.json'
+    if not path.is_file():
+        return {}
+    data = json.loads(path.read_text(encoding='utf-8'))
+    out = {}
+    for entry in data.get('encounterDetails') or []:
+        value = entry.get('Id', {}).get('Value')
+        kind = REMEMBRANCE_KINDS.get(entry.get('Type'))
+        if value is not None and kind:
+            out[value] = kind
+    return out
+
+
+def load_challenges(lang):
+    """遭遇挑战 """
+    path = INFO_DIR / 'story_details.json'
+    if not path.is_file():
+        return {}
+    data = json.loads(path.read_text(encoding='utf-8'))
+    encounters = {}
+    for item in data.get('orderedStoryEntryEncounterRequirements') or []:
+        ident = item.get('StoryIdentifier', {}).get('underlyingValue')
+        value = item.get('EncounterId', {}).get('Value')
+        if ident is not None and value is not None:
+            encounters[ident] = value
+    song_ids = {}
+    songs = INFO_DIR / 'songs.json'
+    if songs.is_file():
+        song_ids = {s.get('baseName'): s.get('songId')
+                    for s in json.loads(songs.read_text(encoding='utf-8'))}
+    titles = load_type_mapping('songIdTitleTypeMapping', lang)
+    enc_names = load_type_mapping('encounterIdTypeMapping', lang)
+    opp_names = load_type_mapping('encounterOpponentNameTypeMapping', lang)
+    bga = load_bga_videos()
+    out = {}
+    for item in data.get('orderedStoryEntrySongPlayRequirements') or []:
+        ident = item.get('StoryIdentifier', {}).get('underlyingValue')
+        base = item.get('SongId') or ''
+        marks = []
+        if item.get('SongPlayType') == 2:
+            marks.append('Boss')
+        if base in bga:
+            marks.append('PV %s' % bga[base])
+        head = '「%s」' % titles.get(song_ids.get(base), (base, ''))[0]
+        if marks:
+            head += '（%s）' % ' · '.join(marks)
+        parts = ['【挑战】' + head]
+        value = encounters.get(ident)
+        if value is not None:
+            parts.append('遭遇「%s」' % (enc_names.get(value, ('', ''))[0] or value))
+            parts.append('对手「%s」' % (opp_names.get(value, ('', ''))[0] or '???'))
+        out[ident] = ' · '.join(parts)
+    return out
+
+
+def load_rewards(lang):
+    """解锁奖励"""
+    path = INFO_DIR / 'reward_data.json'
+    if not path.is_file():
+        return {}
+    data = json.loads(path.read_text(encoding='utf-8'))
+    titles = load_type_mapping('songIdTitleTypeMapping', lang)
+    recipes = load_type_mapping('recipeIdTypeMapping', lang)
+    enc_names = load_type_mapping('encounterIdTypeMapping', lang)
+    kinds = load_encounter_kinds()
+    out = {}
+    for item in data.get('RewardInfo') or []:
+        ident = item.get('StoryIdentifier', {}).get('underlyingValue')
+        parts = []
+        for value in item.get('SongIds') or []:
+            parts.append('歌曲「%s」' % (titles.get(value.get('Value'), ('', ''))[0]
+                                       or value.get('Value')))
+        for value in item.get('RecipeIds') or []:
+            name, code = recipes.get(value.get('Value'), ('', ''))
+            parts.append('配方「%s」%s' % (name or value.get('Value'),
+                                         '（%s）' % code if code else ''))
+        for value in item.get('EncounterIds') or []:
+            kind = kinds.get(value.get('Value'))
+            parts.append('回想「%s」%s' % (enc_names.get(value.get('Value'), ('', ''))[0]
+                                         or value.get('Value'),
+                                         '（%s）' % kind if kind else ''))
+        if parts:
+            out[ident] = '【奖励】' + ' · '.join(parts)
+    return out
 
 
 # --- .sps 解析
@@ -289,7 +409,7 @@ def story_identifier(stem):
 
 
 def load_story_order():
-    """顺序 + 解锁依赖 + 片头视频 key"""
+    """顺序 + 解锁依赖 + RMI分布 key"""
     path = INFO_DIR / 'story_details.json'
     if not path.is_file():
         return None, {}, {}
@@ -312,12 +432,7 @@ def load_story_order():
 
 
 def load_intro_videos():
-    """IntroVideoKey -> 「RMI分布：密集 · 白天」。
-
-    每幕开头会播一段天幔（游戏里叫 RMI）分布动画，选哪一段由 story_details 的
-    `IntroVideoKey` 决定，它就是 VideoFiles 表里那批 `<序号>_<状态>_<时段>.mp4`
-    的第几条（1 起，共 9 状态 × 3 时段 = 27 条）。key 为 0 的幕没有片头。
-    """
+    """IntroVideoKey"""
     path = INFO_DIR / 'video_files.json'
     if not path.is_file():
         return {}
@@ -376,11 +491,7 @@ def resolve_asset(token, aliases):
 
 
 def asset_label(token, path, aliases):
-    """标记里显示的名字。
-
-    脚本里的对象名常是短名（`1A_CG`），真正的资源名只在第二个引号串里
-    （`cg/Keats_RMI_separation_1A_CG.png`），所以有资源路径就优先用它的文件名。
-    """
+    """标记里显示的名字"""
     if path:
         return PurePosixPath(path).stem
     return resolve_asset(token, aliases)
@@ -388,7 +499,8 @@ def asset_label(token, path, aliases):
 
 # --- 渲染
 
-def render(title, scene, items, translations, aliases, name_loc, lang, markers, intro=None):
+def render(title, scene, items, translations, aliases, name_loc, lang, markers,
+           intro=None, extras=None):
     scene = resolve_asset(scene, aliases) if scene else None
     out = ['# ' + title, '场景：' + (scene or '（未知）')]
     if intro:
@@ -416,14 +528,17 @@ def render(title, scene, items, translations, aliases, name_loc, lang, markers, 
         out.append('')
     while out and out[-1] == '':
         out.pop()
+    for line in extras or []:
+        out += ['', line]
     return '\n'.join(out) + '\n'
 
 
 # --- 主流程
 
-def collect_scenes(story_order, requires, mode='game', intro=None):
+def collect_scenes(story_order, requires, mode='game', intro=None, footers=None):
     """扫描所有.sps，按章节归组并按顺序定序，返回 (chapters, problems)"""
     intro = intro or {}
+    footers = footers or {}
     problems = []
     scenes = []
     for path in sorted(SCRIPTS_DIR.glob('scenario_wip/*/*.sps')):
@@ -432,6 +547,7 @@ def collect_scenes(story_order, requires, mode='game', intro=None):
         ident = story_identifier(path.stem)
         scenes.append({
             'intro': intro.get(ident),
+            'extras': footers.get(ident),
             'path': path,
             'folder': path.parent.name,
             'chapter': chapter_of(path.parent.name),
@@ -565,8 +681,12 @@ def main():
     intro_labels = load_intro_videos()
     intro = {ident: intro_labels[key] for ident, key in intro_keys.items()
              if key in intro_labels}
+    challenges = load_challenges(args.lang)
+    rewards = load_rewards(args.lang)
+    footers = {ident: [line for line in (challenges.get(ident), rewards.get(ident)) if line]
+               for ident in set(challenges) | set(rewards)}
 
-    chapters, problems = collect_scenes(story_order, requires, args.order, intro)
+    chapters, problems = collect_scenes(story_order, requires, args.order, intro, footers)
 
     back_edges = sum(1 for target, needs in requires.items() if target in story_order
                      for need in needs
@@ -619,7 +739,8 @@ def main():
             title = ' - '.join([scene['number'], time_of(scene['stem'])]
                                + ([line] if line else []))
             body = render(title, scene_token, items, translations, aliases,
-                          name_loc, args.lang, not args.no_markers, scene.get('intro'))
+                          name_loc, args.lang, not args.no_markers,
+                          scene.get('intro'), scene.get('extras'))
             scene['title'] = title
             scene['scene'] = resolve_asset(scene_token, aliases) if scene_token else None
             scene['body'] = body
