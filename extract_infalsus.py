@@ -13,6 +13,8 @@ import threading
 import time
 from concurrent.futures import ThreadPoolExecutor
 
+import spc_to_json
+
 HERE = os.path.dirname(os.path.abspath(__file__))
 GAME = os.path.join('D:' + os.sep, 'Steam', 'steamapps', 'common', 'In Falsus')
 OUT = os.path.join(HERE, 'output')
@@ -168,12 +170,66 @@ def classify(after):
     return 'maybe-audio'
 
 
+_SEEDS = []                     # 候选谱面种子
+_SEED_LOCK = threading.Lock()
+
+
+def sam_dirs(game_dir):
+    """所有放 .sam 的目录"""
+    dirs = [os.path.join(game_dir, 'infalsus_Data', 'StreamingAssets', 'sam')]
+    dlc_root = os.path.join(game_dir, 'dlc')
+    if os.path.isdir(dlc_root):
+        for name in sorted(os.listdir(dlc_root)):
+            d = os.path.join(dlc_root, name, 'sam')
+            if os.path.isdir(d):
+                dirs.append(d)
+    return [d for d in dirs if os.path.isdir(d)]
+
+
+def chart_seeds(out_dir):
+    """候选种子 = songs.json 里所有 chartId + '.spc"""
+    path = os.path.join(out_dir, 'info', 'songs.json')
+    if not os.path.isfile(path):
+        return []
+    try:
+        with open(path, encoding='utf-8') as f:
+            songs = json.load(f)
+    except (OSError, ValueError):
+        return []
+    return [c['chartId'] + '.spc'
+            for s in songs for c in (s.get('charts') or []) if c.get('chartId')]
+
+
+def match_chart_seed(data):
+    with _SEED_LOCK:
+        for seed in list(_SEEDS):
+            try:
+                obj = spc_to_json.parse(data, seed)
+            except Exception:
+                continue
+            notes = (obj or {}).get('notes') or []
+            if notes and notes[0].get('index') == 0 and (len(notes) < 2 or notes[1].get('index') == 1):
+                _SEEDS.remove(seed)          # 一个 chartId 只配一张谱
+                return seed
+    return None
+
+
 def process_sam(job):
     guid, sam_path, rel, out_root = job
     with open(sam_path, 'rb') as f:
         raw = f.read()
     after = sam_xor(raw)
     kind = classify(after)
+    if rel is None:                          # 映射外的文件
+        if kind == 'chart':
+            rel = match_chart_seed(after)
+            if rel is None:
+                print('[dlc] %s: 是谱面但没能配上 chartId（songs.json 里没有对应条目？）, 跳过'
+                      % guid, flush=True)
+                return (guid, None, 'unmatched-chart', None)
+            print('[dlc] %s -> %s' % (guid, rel), flush=True)
+        else:
+            rel = os.path.join('dlc', guid) 
     base = os.path.splitext(rel)[0].replace(chr(92), '/')
     if kind == 'chart':
         write_out(out_root, 'charts/' + base + '.spc', after)
@@ -395,6 +451,41 @@ def load_streaming_mapping(BDIR, pid_hint=None):
     return None
 
 
+DLC_CONFIG_NAME = 'DlcRuntimeStartupConfiguration'
+
+
+def load_dlc_streaming_assets(BDIR, game_dir=None):
+    """DLC 的流资源清单"""
+    if game_dir and not os.path.isdir(os.path.join(game_dir, 'dlc')):
+        return []
+    import UnityPy
+    needle = DLC_CONFIG_NAME.encode()
+    out = []
+    for bname in sorted(f for f in os.listdir(BDIR) if f.endswith('.bundle')):
+        try:
+            env = UnityPy.load(os.path.join(BDIR, bname))
+        except Exception:
+            continue
+        for obj in env.objects:
+            if obj.type.name != 'MonoBehaviour':
+                continue
+            try:
+                if needle not in obj.get_raw_data():
+                    continue
+                tt = obj.read_typetree()
+            except Exception:
+                continue
+            if tt.get('m_Name') != DLC_CONFIG_NAME:
+                continue
+            for cfg in tt.get('Entries') or []:
+                items = [e for e in (cfg.get('StreamingAssets') or [])
+                         if e.get('Guid') and e.get('FullLookupPath')]
+                print('[dlc] %s: %d 个流资源（%s）'
+                      % (cfg.get('DlcId') or '?', len(items), bname), flush=True)
+                out.extend(items)
+    return out
+
+
 def main():
     global GAME, OUT
     ap = argparse.ArgumentParser(description='sam 解密 + 视频/字体')
@@ -423,10 +514,43 @@ def main():
             raise SystemExit('[mapping] 未找到 StreamingAssetsMapping, 无法定位 sam 文件。'
                              ' 游戏可能已更新, 请检查 %s' % BDIR)
         print('[mapping]', len(mapping), 'entries  %.1fs' % (time.time() - t0), flush=True)
+        dlc_assets = load_dlc_streaming_assets(BDIR, GAME)
+        if dlc_assets:
+            known = set(e['Guid'] for e in mapping)
+            added = [e for e in dlc_assets if e['Guid'] not in known]
+            print('[dlc] 追加 %d 条 DLC 流资源（清单共 %d 条）'
+                  % (len(added), len(dlc_assets)), flush=True)
+            mapping = list(mapping) + added
 
-        sam_dir = os.path.join(GAME, 'infalsus_Data', 'StreamingAssets', 'sam')
-        jobs = [(e['Guid'], os.path.join(sam_dir, e['Guid']), e['FullLookupPath'], OUT)
-                for e in mapping if os.path.isfile(os.path.join(sam_dir, e['Guid']))]
+        dirs = sam_dirs(GAME)
+        print('[sam] 目录 %d 个: %s' % (len(dirs), ' | '.join(dirs)), flush=True)
+        jobs, seen = [], set()
+        for e in mapping:
+            path = None
+            for d in dirs:
+                cand = os.path.join(d, e['Guid'])
+                if os.path.isfile(cand):
+                    path = cand
+                    break
+            if path is None:
+                print('[sam] 跳过（找不到文件）: %s  %s' % (e['FullLookupPath'], e['Guid']),
+                      flush=True)
+                continue
+            seen.add(e['Guid'])
+            jobs.append((e['Guid'], path, e['FullLookupPath'], OUT))
+
+        extra = [os.path.join(d, g) for d in dirs[1:]
+                 for g in sorted(os.listdir(d))
+                 if g not in seen and os.path.isfile(os.path.join(d, g))]
+        if extra:
+            matched = set(e['FullLookupPath'] for e in mapping)
+            _SEEDS.extend(s for s in chart_seeds(OUT) if s not in matched)
+            print('[sam] 映射外文件 %d 个（DLC?）, 候选种子 %d 个'
+                  % (len(extra), len(_SEEDS)), flush=True)
+            if not _SEEDS:
+                print('[sam] 没有候选种子（缺 output/info/songs.json？先跑 info_tables.py）,'
+                      ' 映射外的谱面无法配对', flush=True)
+            jobs += [(os.path.basename(p), p, None, OUT) for p in extra]
         print('[sam]', len(jobs), 'files', flush=True)
         stats = {}
         lock = threading.Lock()

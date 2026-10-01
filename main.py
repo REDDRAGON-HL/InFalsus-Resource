@@ -55,6 +55,10 @@ def main():
     print('game dir: ' + game)
     print('out dir:   ' + out)
 
+    # 数据表先跑 解 sam 时靠songs.json 给 DLC 配解密种子
+    if EXTRACT_TABLES:
+        run('info_tables.py', [game, out])
+
     if EXTRACT_AUDIO or EXTRACT_CHARTS or EXTRACT_SCRIPTS:
         run('extract_infalsus.py', [game, out])
         if not EXTRACT_AUDIO:
@@ -69,9 +73,6 @@ def main():
 
     if EXTRACT_VIDEOS:
         run('extract_infalsus.py', [game, out, '--skip-sam'])
-
-    if EXTRACT_TABLES:
-        run('info_tables.py', [game, out])
 
     if CHART_TO_JSON and EXTRACT_CHARTS:
         run('spc_to_json.py', [game, out])

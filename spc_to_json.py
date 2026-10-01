@@ -171,7 +171,7 @@ def decode_event(raw):
         event['flags'] = value1
     else:
         number = struct.unpack('<d', struct.pack('<Q', value1))[0]
-        # type 1 实测取值 65..2000, 是 BPM; 其余类型只是斜坡/滚动位置
+        # type 1 实测取值 65..9560, 是 BPM; 其余类型只是斜坡/滚动位置
         event['bpm' if event_type == 1 else 'value'] = round(number, 6)
     if value2:
         event['speed'] = round(struct.unpack('<f', struct.pack('<I', value2))[0], 6)
@@ -282,12 +282,13 @@ def parse(data, seed):
 
 
 def _flat_name(name):
-    """只接受单层文件名, 拒绝任何目录成分或上级引用"""
-    if name != os.path.basename(name) or '..' in name:
+    """只接受相对路径, 拒绝绝对路径与任何上级引用"""
+    if os.path.isabs(name):
         raise SystemExit('非法文件名: %r' % name)
-    if '/' in name or '\\' in name:
+    parts = name.replace('\\', '/').split('/')
+    if not all(p and p != '..' for p in parts):
         raise SystemExit('非法文件名: %r' % name)
-    return name
+    return '/'.join(parts)
 
 
 def read_chart(root, name):
@@ -299,6 +300,7 @@ def read_chart(root, name):
 
 def write_json(root, name, obj):
     path = Path(root) / _flat_name(name)
+    path.parent.mkdir(parents=True, exist_ok=True)
     # 只把 fractions 这类纯标量小数组内联, 音符与事件对象仍逐字段展开
     path.write_text(json_compact.dumps(obj, inline_limit=0, leaf_limit=240),
                     encoding='utf-8')
@@ -313,19 +315,21 @@ def main():
         return 1
     os.makedirs(json_dir, exist_ok=True)
     done = failed = 0
-    for name in sorted(os.listdir(charts_dir)):
-        if not name.endswith('.spc'):
-            continue
-        try:
-            obj = parse(read_chart(charts_dir, name), name)
-        except ValueError as exc:
-            print('[spc->json] %s: %s' % (name, exc))
-            failed += 1
-            continue
-        if obj is None:
-            continue
-        write_json(json_dir, name[:-4] + '.json', obj)
-        done += 1
+    for root, _dirs, files in os.walk(charts_dir):
+        for name in sorted(files):
+            if not name.endswith('.spc'):
+                continue
+            rel = os.path.relpath(os.path.join(root, name), charts_dir).replace(os.sep, '/')
+            try:
+                obj = parse(read_chart(charts_dir, rel), rel)   # 种子 = 相对 charts 的路径
+            except ValueError as exc:
+                print('[spc->json] %s: %s' % (rel, exc))
+                failed += 1
+                continue
+            if obj is None:
+                continue
+            write_json(json_dir, rel[:-4] + '.json', obj)
+            done += 1
     print('[spc->json] %d 张谱面已解密 (%d 失败)' % (done, failed))
     return 0
 
