@@ -168,13 +168,13 @@ def decode_event(raw):
     value2 = int.from_bytes(raw[24:32], 'little')
     event = {'id': event_id, 'type': event_type, 'timeMs': time_ms}
     if event_type == 3:
-        event['flags'] = value1
+        event['track'] = value1 & 0xFF
+        event['enabled'] = value1 >> 8
     else:
         number = struct.unpack('<d', struct.pack('<Q', value1))[0]
-        # type 1 实测取值 65..9560, 是 BPM; 其余类型只是斜坡/滚动位置
-        event['bpm' if event_type == 1 else 'value'] = round(number, 6)
+        event[{0: 'visualParam', 1: 'bpm', 2: 'gridSpeed'}[event_type]] = round(number, 6)
     if value2:
-        event['speed'] = round(struct.unpack('<f', struct.pack('<I', value2))[0], 6)
+        event['meter'] = round(struct.unpack('<f', struct.pack('<I', value2))[0], 6)
     return event
 
 
